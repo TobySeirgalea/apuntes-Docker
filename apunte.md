@@ -1,6 +1,7 @@
 # Docker 🐳🚢
 
 ## ¿Qué son los *containers*?
+
 Son procesos que corren con su propio entorno aislado de los demás.
 
 ## Container images
@@ -13,11 +14,14 @@ Las imágenes se componen de *layers*, las cuáles podemos reutilizar.
 
 Las imágenes son inmutables, pero podemos crear una nueva agregándo una *layer* encima.
 
+Múltiples *containers* puede usar la misma imagen y modificar archivos sin inteferir entre ellos, ya que aunque compartan *image* siguen siendo independientes y aislados. Esto se debe a que la *writable layer* es única en cada *container*.
+
 ### ¿Qué son las *layers*?
 
 Son modificaciones al *filesystem* de la *container image*.
 
 ### ¿Qué pasa cuando iniciamos un *container*?
+
 1. Se descargan las *layers*.
 2. Se extrae cada *layer* en un directorio en el *host*.
 3. Al iniciar un *container* desde una *container image* con todas las *layers* de esta se hace un *union filesystem*.
@@ -26,6 +30,7 @@ Son modificaciones al *filesystem* de la *container image*.
 ### ¿Cómo creamos una nueva *container image*? → Dockerfiles
 
 Instrucciones comúnes de `Dockerfile`:
+
 - `ARG <arg>` - Especifica los argumentos que usará el `FROM` y solo esta instrucción puede ir antes de este.
 - `FROM <image>` - Especifica la imagen base sobre la que construir agregando layers. Para agregarle un nombre al *build stage* usamos `FROM ... AS <NAME>`.
 - `WORKDIR <path>` - Ruta en la imagen donde se ejecutarán comandos y ubicarán archivos.
@@ -53,7 +58,9 @@ Los pasos comúnes de un `Dockerfile` son:
 3. Copy in any relevant source code and/or binaries
 4. Configure the final image.
 
-Al igual que con `npm` podemos correr `npm init --yes` para que nos genere un `package.json` por defecto, acá corriendo `docker init` nos crea un `Dockerfile`, `compose.yaml` y un `.dockerignore`.
+Al igual que con `npm` podemos correr `npm init --yes` para que nos genere un `package.json` por defecto, acá corriendo `docker init` nos crea un `Dockerfile`, `compose.yml` y un `.dockerignore`.
+
+Para correr ese *container* con *Docker Compose* usamos `docker compose up` y para apagarlo `docker compose down`
 
 ### *Container image build*
 
@@ -69,7 +76,7 @@ Si queremos que la imagen tenga un nombre en vez de un ID podemos usar un *tag*.
 
 Sintaxis de un tag:
 
-```
+```docker
 [HOST[:PORT_NUMBER]/]PATH[:TAG]
 ```
 
@@ -110,6 +117,18 @@ Requiere que estés autenticado, para eso usar `docker login`.
 docker image history YOUR_DOCKER_USERNAME/YOUR_DOCKER_IMAGE_TAG
 ```
 
+### Parar un *container*
+
+Usamos `docker stop <container-id>`.
+
+### Eliminar un *container*
+
+- Si no nos sabemos el *container id* podemos verlo ejecutando `docker ps`.
+- Paramos el *container* con `docker stop <container-id>`.
+- Ya con este parado ejecutamos `docker rm <container-id>`
+- Si querés pararlo y borrarlo de una usá `docker -fr <container id>`
+
+
 ### Comunicación vía puertos
 
 Como los *containers* corren en un entorno aislado, no podemos acceder a ellos directamente sino que debemos hacerlo mediante puertos.
@@ -142,7 +161,7 @@ Algunas flags útiles:
 - `--memory="<amount>"` y `--cpus=<amount>`: Sirven para especificar los recursos asignados al contenedor. Ejemplo: `docker run -e POSTGRES_PASSWORD=secret --memory="512m" --cpus="0.5" postgres`.
 - `--network <myNetworkName>`: Permite conectar el contenedor a una *custom network*.
 - `-h <hostName>`: Sirve para cambiar el host.
-
+- `-d` o `--detached`: Indica que el *container* se corra en el *background* y te devuelva el control de la terminal en vez de imprimir los logs en ella.
 Para visualizar recursos asignados usar comando `docker stats`.
 
 ## Avanzado
@@ -196,6 +215,8 @@ Con el comando `docker network inspect` vemos qué contenedor está conectado a 
 e.g.:
 `docker run -d -e POSTGRES_PASSWORD=secret -p 5434:5432 --network mynetwork postgres`.
 
+Si usamos *Docker Compose* no hace falta que definamos una *network* ya que por defecto este crea una y utiliza los nombres de los *containers/services* como *network alias*.
+
 #### Diferencias entre *default bridge* y *custom network*
 
 - Los *containers* conectados a *default bridge* se pueden comunicar pero solo por IP address. Mientras que en *custom networks* se pueden comunicar por alias o nombre.
@@ -219,3 +240,109 @@ Para crear un volumen ejecutamos  `docker volume create <volumeName>`, y al inic
 - `docker volume ls`: Lista los volúmenes.
 - `docker volume rm <volume-name-or-id>`: Borra el volumen y solo funciona si no está montado a ningún contenedor.
 - `docker volume prune`: Borra todos los volúmenes no usados/montados.
+- `docker volume inspect <volume-name-or-id>`: Nos permite ver información del volumen en formato JSON, como "Mountpoint", que es donde se encuentran los datos del volumen en el disco del host.
+
+## Compartir archivos locales con *container*
+
+Si necesitás que un *container* acceda a información en el host pero que no se almacene en el *container* por razones de seguridad, entonces podés usar los métodos para compartir archivos entre host y *container*:
+
+- Volumes ← Si querés que las modificaciones de datos realizadas en el *container* persistan.
+- Mounts ← Si hay archivos del *host system* que querés compartir con el *container*. Permite especificar *host location*, también `type=` permite elegir entre *volume* y *bind*, con `src=` y `target=` indicamos fuente en *host* y destino en *container*.
+
+E.g.: `docker run -it --mount type=bind,src=.,target=/src ubuntu`
+
+Tenemos los flags `-v`/`--volume` y `--mount` del comando `docker run`. El `--mount` es el recomendado por ser más granular. Tener en cuenta que de no existir la carpeta `-v` la crea pero  `--mount` no, tampoco sucede con *Docker Compose*.
+
+Ejemplo dando acceso al *container* a `/HOST/PATH`: `docker run -v /HOST/PATH:/CONTAINER/PATH -it nginx`
+
+Ejemplo con `--mount`
+`docker run --mount type=bind,source=/HOST/PATH,target=/CONTAINER/PATH,readonly nginx`
+
+En *Docker Compose* debemos indicar los volúmenes con `volumes:` a nivel general, y en la configuración de cada *container/service* ponemos en `volumes:` en *mountpoint*. Por ejemplo:
+
+```yml
+services:
+  app:
+    # The app service definition
+  mysql:
+    image: mysql:8.0
+    volumes:
+      - todo-mysql-data:/var/lib/mysql
+
+volumes:
+  todo-mysql-data:
+```
+
+### Restringiendo permisos a archivos compartidos
+
+Al final del *container directory* podemos usar flags para restringir los permisos que tendrá el *container* sobre el *host directory*.
+
+Estos pueden ser `:ro` para *read-only*, `:rw` para *read-write*, en el cuál los cambios realizados por el *container* se ven reflejados en el *host directory*.
+
+Ejemplo:
+`docker run -v HOST-DIRECTORY:/CONTAINER-DIRECTORY:rw nginx`
+
+## Aplicaciones *multi-container*
+
+Buena práctica: "Cada contenedor debe realizar una única cosa y hacerla bien"
+
+Para esto nos ayudamos de *Docker Compose* que:
+
+- Nos permite definir toda la aplicación *multi-container* en un sólo archivo `compose.yaml`, conteniendo las configuraciones para cada *container*. 
+- Permite evitar tener que correr un `docker run` por cada *container*.
+- Facilita el manejo de variables de entorno, *networks*, volúmenes persistentes, etc.
+
+### Sin Docker Compose
+
+- Primero hacemos el `docker build` de cada *container*.
+- Luego creamos una *network* con `docker network create <nombreNetwork>`.
+- Corremos `docker run` en cada *container* pero conectándolo a la *network* con el flag `--network <nombreNetwork>` y también les damos un alias en esta con `--network-alias <alias>`.
+
+### Con Docker Compose
+
+- En el *root* del directorio del proyecto creamos un archivo `compose.yml`.
+- Seguimos la siguiente estructura:
+
+```yml
+services:
+  container1:
+    ...
+  container2:
+    ...
+  containern:
+    ...
+```
+
+- Lo que pongamos como nombre, en este caso containeri será el network alias de ese container
+
+- En el cuerpo de cada *container* completamos con su configuración. [Ejemplo de un Docker Compose *multi-container*](./nginx-node-redis/compose.yml)
+
+## Compartir imágenes vía Docker Registry
+
+- Crear un repositiorio en ([*Docker Hub*](https://hub.docker.com/?_gl=1*12686r3*_gcl_au*MTg4MDg5NTYzOC4xNzc4NzcxNTQz*_ga*MTk5NTQ0OTYyOC4xNzc4NzcxNTQ0*_ga_XJWPQMJYHQ*czE3Nzg4NjQ3MTMkbzExJGcxJHQxNzc4ODY2NDE0JGo1OSRsMCRoMA..))
+- Al crearlo *Docker Hub* nos va a sugerir un comando para pushear la imagen al repositorio. 
+- Copiar dicho comando en la terminal pero asignándo un *tag name*.
+- Si al ejecutarlo nos tira un error que contenga el siguiente mensaje "...An image does not exist locally with the tag: `docker/<repositoryName>`". Debemos ver si al ejecutar `docker image ls` la imagen que queremos subir no tiene el nombre `docker/<repositoryName>`. Para solucionarlo hacemos lo siguiente:
+        - Nos loggeamos en *Docker Hub* con nuestro *Docker ID*: `docker login <YOUR-USER-NAME>`.
+        - Cambiar el nombre de la imagen: `docker tag <currentTag> <YOUR-USER-NAME/currentTag>`, donde `currentTag` debe ser igual a `repositoryName`.
+        - Volver a correr el comando de `docker push` que dio el error.
+
+Ahora podemos descargar esta imagen en cualquier otra computadora y correrla sin problemas.
+
+## Command breakdowns
+
+Si tenemos que ejecutar un comando muy largo en terminal, podemos separarlo con \ y seguir en siguiente línea. Ejemplo:
+
+```bash
+docker run -dp 127.0.0.1:3000:3000 \
+    -w /app --mount type=bind,src=.,target=/app \
+    node:24-alpine \
+    sh -c "npm install && npm run dev"
+```
+
+## Utilizar un *container* como watch montando el código fuente en él
+
+Podés crear un *container* al cuál le pasás el directorio que querés ejecutar con un *bind* y luego corrés en él el script con `nodemon`.
+
+Luego para ver sus logs corrés `docker logs -f <container-id>`.
+
